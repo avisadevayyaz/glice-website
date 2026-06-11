@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { TypingDots } from "@/components/chat/typing-indicator";
 import { ArrowLeft, Ban, MoreHorizontal, UserMinus } from "lucide-react";
 import { chatSocket } from "../services/socket-service";
 import type { ChatRoom } from "../types";
@@ -41,9 +42,24 @@ export function ConversationHeader({ room, onBack }: ConversationHeaderProps) {
 
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-base font-semibold">{otherUser.name}</h1>
-        <p className="truncate text-xs text-[var(--primary)]">
-          {otherUser.isActive ? "Online" : otherUser.location?.text || "Offline"}
-        </p>
+        {room.typing ? (
+          <p className="chat-header-status chat-header-status--typing">
+            <TypingDots size="sm" />
+            <span>Typing…</span>
+          </p>
+        ) : (
+          <p
+            className={
+              otherUser.isActive
+                ? "chat-header-status chat-header-status--online"
+                : "chat-header-status"
+            }
+          >
+            {otherUser.isActive
+              ? "Online"
+              : otherUser.location?.text || "Offline"}
+          </p>
+        )}
       </div>
 
       <DropdownMenu>

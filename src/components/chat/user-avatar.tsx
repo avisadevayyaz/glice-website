@@ -45,7 +45,7 @@ export function UserAvatar({
         )}
       </div>
       {isOnline && (
-        <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[var(--bg)] bg-[var(--primary)]" />
+        <span className="chat-avatar-online" aria-label="Online" />
       )}
     </div>
   );

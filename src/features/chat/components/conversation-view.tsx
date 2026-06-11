@@ -109,7 +109,7 @@ export function ConversationView({ roomId, onBack }: ConversationViewProps) {
         <ChatConversationContent
           ref={scrollRef}
           onScroll={loadMore}
-          className="chat-conversation-scroll"
+          className={`chat-conversation-scroll${room.typing ? " chat-conversation-scroll--typing" : ""}`}
         >
           <p className="chat-paired-divider">
             Paired with {room.otherUser.name}
@@ -188,6 +188,16 @@ export function ConversationView({ roomId, onBack }: ConversationViewProps) {
           )}
         </ChatConversationContent>
       </ChatConversation>
+
+      {room.typing && (
+        <div className="chat-typing-mobile-bar md:hidden" role="status" aria-live="polite">
+          <ChatTypingIndicator
+            name={room.otherUser.name}
+            avatarUrl={room.otherUser.profileUrl}
+            variant="inline"
+          />
+        </div>
+      )}
 
       <MessageComposer room={room} />
       <ImagePreviewModal url={previewUrl} onClose={() => setPreviewUrl(null)} />

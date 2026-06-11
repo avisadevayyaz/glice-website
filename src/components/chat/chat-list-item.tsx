@@ -59,22 +59,22 @@ export function ChatListItem({
           </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
-          <span
-            className={cn(
-              "truncate text-[13px]",
-              typing
-                ? "font-medium text-[var(--primary)]"
-                : unread > 0
+          {typing ? (
+            <span className="min-w-0 flex-1 overflow-visible">
+              <ChatTypingIndicator variant="inline" />
+            </span>
+          ) : (
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-[13px]",
+                unread > 0
                   ? "font-medium text-[var(--text)]"
                   : "text-[var(--muted)]",
-            )}
-          >
-            {typing ? (
-              <ChatTypingIndicator variant="inline" />
-            ) : (
-              preview
-            )}
-          </span>
+              )}
+            >
+              {preview}
+            </span>
+          )}
           <span className="flex shrink-0 items-center gap-1.5">
             {!typing && unread === 0 && isSentByMe && (
               <CheckCheck className="h-3.5 w-3.5 text-[var(--primary)]" />

@@ -11,7 +11,7 @@ type ChatTypingIndicatorProps = {
   className?: string;
 };
 
-function TypingDots({ size = "md" }: { size?: "sm" | "md" }) {
+export function TypingDots({ size = "md" }: { size?: "sm" | "md" }) {
   const dot =
     size === "sm"
       ? "chat-typing-dot chat-typing-dot--sm"
