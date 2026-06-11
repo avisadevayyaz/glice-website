@@ -3,12 +3,14 @@
 import { getUser } from "@/features/auth/api/auth-api";
 import { refreshAccessToken } from "@/features/auth/lib/refresh-auth";
 import { tokenStorage } from "@/features/auth/lib/token-storage";
+import { chatSocket } from "@/features/chat/services/socket-service";
 import type { GliceUser } from "@/features/auth/types";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
 } from "react";
@@ -46,7 +48,9 @@ export function UiSessionProvider({
 }) {
   const pathname = usePathname();
   const [isInitializing, setIsInitializing] = useState(true);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() =>
+    tokenStorage.hasPersistedSession(),
+  );
   const [user, setUser] = useState<GliceUser | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<AuthModalMode>(null);
@@ -54,13 +58,10 @@ export function UiSessionProvider({
   const userName = displayName(user);
   const userInitial = userName.charAt(0).toUpperCase() || "G";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const body = document.body;
     body.classList.toggle("is-logged-in", isLoggedIn);
     body.classList.toggle("video-hero-active", pathname === "/");
-    return () => {
-      body.classList.remove("is-logged-in", "video-hero-active");
-    };
   }, [isLoggedIn, pathname]);
 
   useEffect(() => {
@@ -118,9 +119,11 @@ export function UiSessionProvider({
   }, [closeAuth]);
 
   const logout = useCallback(() => {
+    chatSocket.logout();
     tokenStorage.clear();
     setUser(null);
     setIsLoggedIn(false);
+    document.body.classList.remove("is-logged-in");
   }, []);
 
   const value = useMemo(

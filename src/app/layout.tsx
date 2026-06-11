@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { Footer } from "@/components/layout/Footer";
-import { Header } from "@/components/layout/Header";
-import { brandConfig } from "@/config/brand";
+import { SiteChrome } from "@/components/layout/site-chrome";
 import { Providers } from "@/providers";
 import "./globals.css";
 
@@ -33,9 +31,7 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>
-          <Header />
-          {children}
-          <Footer />
+          <SiteChrome>{children}</SiteChrome>
         </Providers>
       </body>
     </html>

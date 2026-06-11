@@ -1,13 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useUiSession } from "@/components/site/ui-session-provider";
-
 export function Header() {
   const pathname = usePathname();
-  const { userName, userInitial, openAuth, logout } = useUiSession();
+  const router = useRouter();
+  const { isLoggedIn, userName, userInitial, openAuth, logout } = useUiSession();
   const showAuthActions = pathname === "/";
+  const isMessagesRoute = pathname.startsWith("/messages");
+
+  const openMessages = () => {
+    if (isLoggedIn) {
+      router.push("/messages");
+      return;
+    }
+    openAuth("login");
+  };
 
   return (
     <header className="topbar" aria-label="Site">
@@ -18,9 +27,13 @@ export function Header() {
         </span>
       </Link>
 
-      {showAuthActions && (
+      {(showAuthActions || isMessagesRoute) && (
       <div className="topbar-actions topbar-guest">
-        <button type="button" className="topbar-btn btn-messages">
+        <button
+          type="button"
+          className="topbar-btn btn-messages"
+          onClick={openMessages}
+        >
           <i className="ri-message-3-line" aria-hidden="true" />
           <span>Message</span>
         </button>
@@ -41,15 +54,23 @@ export function Header() {
       </div>
       )}
 
-      {showAuthActions && (
+      {(showAuthActions || isMessagesRoute) && (
       <div className="topbar-actions topbar-user">
-        <button type="button" className="topbar-btn btn-messages">
+        <button
+          type="button"
+          className="topbar-btn btn-messages"
+          onClick={openMessages}
+        >
           <i className="ri-message-3-line" aria-hidden="true" />
           <span>Message</span>
         </button>
         <span className="topbar-avatar">{userInitial}</span>
         <span className="topbar-user-name">{userName}</span>
-        <button type="button" className="topbar-btn" onClick={logout}>
+        <button
+          type="button"
+          className="topbar-btn"
+          onClick={logout}
+        >
           Log out
         </button>
       </div>
