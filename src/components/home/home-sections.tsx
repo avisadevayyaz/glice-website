@@ -1,3 +1,4 @@
+import { FaqSection } from "@/components/marketing/faq-section";
 import Image from "next/image";
 
 const PHONE_SHOTS = [7, 2, 8, 3, 4, 5, 6, 9];
@@ -120,38 +121,6 @@ export function HomeSections() {
         </div>
       </section>
 
-      <section className="section pt-0">
-        <div className="mx-auto max-w-7xl">
-          <div className="reveal mb-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-            <div className="max-w-xl">
-              <h2 className="display-2 balance mt-4">A look inside.</h2>
-            </div>
-            <p className="lede balance max-w-md">
-              Real screens, real flows. The Glice experience is built around
-              clarity, presence, and one-tap interactions.
-            </p>
-          </div>
-        </div>
-
-        <div className="reveal mx-auto max-w-[1600px]">
-          <div className="rail px-6 md:px-12">
-            {PHONE_SHOTS.map((shot) => (
-              <div key={shot} className="phone phone-sm">
-                <div className="phone-screen">
-                  <Image
-                    src={`/icons/feature_images/${shot}.png`}
-                    alt={`Glice app screen ${shot}`}
-                    width={220}
-                    height={476}
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="section">
         <div className="mx-auto max-w-7xl">
           <div className="reveal mb-16 max-w-2xl">
@@ -260,6 +229,8 @@ export function HomeSections() {
           </div>
         </div>
       </section>
+
+      <FaqSection />
     </>
   );
 }

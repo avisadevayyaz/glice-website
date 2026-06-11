@@ -1,3 +1,4 @@
+import { clearAuthSession } from "@/features/auth/lib/persist-session";
 import { refreshAccessToken } from "@/features/auth/lib/refresh-auth";
 import { tokenStorage } from "@/features/auth/lib/token-storage";
 import { handleError, type ApiError } from "./error-handler";
@@ -101,6 +102,7 @@ async function request<T>(
       if (newToken) {
         return request<T>(endpoint, { ...config, _retried: true });
       }
+      clearAuthSession();
     }
 
     if (!response.ok) {

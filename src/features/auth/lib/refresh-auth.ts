@@ -1,6 +1,7 @@
 import { refreshTokenRoute } from "@/features/auth/api/routes";
-import type { RefreshTokenResponse } from "@/features/auth/types";
+import { clearAuthSession } from "@/features/auth/lib/persist-session";
 import { tokenStorage } from "@/features/auth/lib/token-storage";
+import type { RefreshTokenResponse } from "@/features/auth/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -24,7 +25,6 @@ export async function refreshAccessToken(): Promise<string | null> {
     const email = tokenStorage.getUserEmail();
 
     if (!BASE_URL || !refreshToken || !email) {
-      tokenStorage.clear();
       return null;
     }
 
@@ -39,8 +39,13 @@ export async function refreshAccessToken(): Promise<string | null> {
         | RefreshTokenResponse
         | { message?: string; success?: boolean };
 
-      if (!response.ok || !data || typeof data !== "object" || !("accessToken" in data)) {
-        tokenStorage.clear();
+      if (
+        !response.ok ||
+        !data ||
+        typeof data !== "object" ||
+        !("accessToken" in data)
+      ) {
+        clearAuthSession();
         return null;
       }
 
@@ -49,7 +54,7 @@ export async function refreshAccessToken(): Promise<string | null> {
       tokenStorage.setRefreshToken(newRefreshToken);
       return accessToken;
     } catch {
-      tokenStorage.clear();
+      clearAuthSession();
       return null;
     } finally {
       refreshPromise = null;

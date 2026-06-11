@@ -1,6 +1,7 @@
 import { authRoutes } from "@/features/auth/api/routes";
 import { getClientIp } from "@/features/auth/lib/get-client-ip";
-import { tokenStorage } from "@/features/auth/lib/token-storage";
+import { parseGoogleCredential } from "@/features/auth/lib/parse-google-credential";
+import { persistAuthSession } from "@/features/auth/lib/persist-session";
 import type { AuthResponse, GliceUser } from "@/features/auth/types";
 import { apiClient } from "@/lib/api-client";
 
@@ -14,10 +15,10 @@ export async function loginWithEmail(
     { email, password, ipAddress },
     false,
   );
-  tokenStorage.setSession(
+  persistAuthSession(
     response.accessToken,
     response.refreshToken,
-    response.user.email,
+    response.user,
   );
   return response;
 }
@@ -41,10 +42,10 @@ export async function signupWithEmail(input: {
     },
     false,
   );
-  tokenStorage.setSession(
+  persistAuthSession(
     response.accessToken,
     response.refreshToken,
-    response.user.email,
+    response.user,
   );
   return response;
 }
@@ -86,4 +87,39 @@ export async function updatePassword(input: {
 
 export async function getUser(identifier: string): Promise<GliceUser> {
   return apiClient.get<GliceUser>(authRoutes.getUser(identifier));
+}
+
+export async function loginWithGoogle(
+  credential: string,
+  isRegister = false,
+): Promise<AuthResponse> {
+  const profile = parseGoogleCredential(credential);
+  const ipAddress = await getClientIp();
+
+  const body: Record<string, unknown> = {
+    profileUrl: profile.picture,
+    isRegister,
+    name: profile.name,
+    email: profile.email,
+    provider: "google",
+    ipAddress,
+  };
+
+  // New Google sign-ups store the ID token (same field as mobile).
+  // Returning users are matched by email when appleToken is omitted.
+  if (isRegister) {
+    body.appleToken = credential;
+  }
+
+  const response = await apiClient.post<AuthResponse>(
+    authRoutes.signup,
+    body,
+    false,
+  );
+  persistAuthSession(
+    response.accessToken,
+    response.refreshToken,
+    response.user,
+  );
+  return response;
 }
