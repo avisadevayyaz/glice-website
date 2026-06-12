@@ -14,6 +14,7 @@ export function Header() {
   const { isLoggedIn, openAuth, logout } = useUiSession();
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const isHome = pathname === "/";
+  const isHistory = pathname.startsWith("/history");
   const isMessages = pathname.startsWith("/messages");
 
   const handleLogoutConfirm = () => {
@@ -74,6 +75,11 @@ export function Header() {
 
         {!isHome && isLoggedIn && !isMessages && (
           <div className="topbar-actions topbar-user--always">
+            {isHistory && (
+              <Link href="/" className="topbar-btn">
+                Live video
+              </Link>
+            )}
             {loggedInActions("icon")}
           </div>
         )}

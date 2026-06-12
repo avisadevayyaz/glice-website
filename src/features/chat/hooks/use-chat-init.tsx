@@ -2,6 +2,7 @@
 
 import { hydrateSessionUser } from "@/features/auth/lib/hydrate-session-user";
 import { useUiSession } from "@/components/site/ui-session-provider";
+import { resolveSocketUserLocation } from "@/features/video/lib/discover-location";
 import { useEffect, useRef } from "react";
 import { chatSocket } from "../services/socket-service";
 
@@ -28,7 +29,8 @@ export function ChatSocketInitializer(): null {
         applySessionUser(hydrated);
       }
 
-      chatSocket.connect({ user: hydrated });
+      const location = await resolveSocketUserLocation(hydrated);
+      chatSocket.connect({ user: hydrated, location });
     })();
 
     return () => {

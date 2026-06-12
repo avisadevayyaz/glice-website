@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 export type MediaStatus =
   | "checking"
@@ -10,31 +16,59 @@ export type MediaStatus =
   | "denied"
   | "error";
 
-const MEDIA_CONSTRAINTS: MediaStreamConstraints = {
-  video: {
-    facingMode: "user",
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-  },
-  audio: true,
-};
+function mediaConstraints(): MediaStreamConstraints {
+  const isMobile =
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 720px)").matches;
+
+  return {
+    video: {
+      facingMode: "user",
+      width: { ideal: isMobile ? 640 : 1280 },
+      height: { ideal: isMobile ? 480 : 720 },
+    },
+    audio: true,
+  };
+}
 
 let sharedStream: MediaStream | null = null;
 
-function hasLiveTracks(stream: MediaStream | null) {
-  if (!stream?.active) return false;
-  const video = stream.getVideoTracks().some((t) => t.readyState === "live");
-  const audio = stream.getAudioTracks().some((t) => t.readyState === "live");
-  return video && audio;
+export function getSharedMediaStream(): MediaStream | null {
+  return sharedStream;
 }
 
-function bindStream(video: HTMLVideoElement | null, stream: MediaStream | null) {
+function hasLiveTracks(stream: MediaStream | null) {
+  if (!stream?.active) return false;
+  return stream.getVideoTracks().some((t) => t.readyState === "live");
+}
+
+function bindStream(
+  video: HTMLVideoElement | null,
+  stream: MediaStream | null,
+) {
   if (!video) return;
-  video.srcObject = stream;
-  if (stream) {
+
+  if (!stream) {
+    if (video.srcObject) video.srcObject = null;
+    return;
+  }
+
+  if (video.srcObject !== stream) {
+    video.srcObject = stream;
+  }
+
+  const play = () => {
+    if (video.srcObject !== stream) return;
     void video.play().catch(() => {
-      /* autoplay policy */
+      /* may need another loadedmetadata retry after permission gate closes */
     });
+  };
+
+  play();
+
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    video.addEventListener("loadeddata", play, { once: true });
+    video.addEventListener("loadedmetadata", play, { once: true });
   }
 }
 
@@ -66,26 +100,44 @@ async function acquireMediaStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("unsupported");
   }
-  return navigator.mediaDevices.getUserMedia(MEDIA_CONSTRAINTS);
+  return navigator.mediaDevices.getUserMedia(mediaConstraints());
 }
 
 async function tryAcquireStream(): Promise<MediaStream | null> {
   try {
     return await acquireMediaStream();
   } catch {
-    return null;
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+    } catch {
+      return null;
+    }
   }
 }
 
 export function useMediaStream() {
   const localRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(sharedStream);
-  const [status, setStatus] = useState<MediaStatus>("checking");
+  const [status, setStatus] = useState<MediaStatus>("idle");
   const [cameraEnabled, setCameraEnabledState] = useState(true);
   const probeStartedRef = useRef(false);
+  const acquiringRef = useRef(false);
 
   const syncVideo = useCallback(() => {
     bindStream(localRef.current, streamRef.current);
+  }, []);
+
+  /** Callback ref — re-binds stream whenever the <video> node mounts or moves panels. */
+  const attachLocalVideo = useCallback((node: HTMLVideoElement | null) => {
+    localRef.current = node;
+    if (node) {
+      node.setAttribute("playsinline", "true");
+      node.setAttribute("webkit-playsinline", "true");
+    }
+    bindStream(node, streamRef.current);
   }, []);
 
   const applyStream = useCallback(
@@ -115,14 +167,15 @@ export function useMediaStream() {
     setStatus("idle");
   }, []);
 
-  const requestAccess = useCallback(async () => {
+  const requestAccess = useCallback(async (): Promise<boolean> => {
     if (!navigator.mediaDevices?.getUserMedia) {
       setStatus("error");
-      return;
+      return false;
     }
 
-    if (attachSharedStream()) return;
+    if (attachSharedStream()) return true;
 
+    acquiringRef.current = true;
     setStatus("requesting");
 
     if (sharedStream && !hasLiveTracks(sharedStream)) {
@@ -130,48 +183,60 @@ export function useMediaStream() {
       streamRef.current = null;
     }
 
-    const stream = await tryAcquireStream();
-    if (stream) {
-      applyStream(stream);
-      return;
+    try {
+      let stream = await tryAcquireStream();
+      if (!stream) {
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+        stream = await tryAcquireStream();
+      }
+
+      if (stream) {
+        applyStream(stream);
+        return true;
+      }
+
+      const { camera, microphone } = await queryPermissionStates();
+
+      if (camera === "granted" && microphone === "granted") {
+        setStatus("error");
+        return false;
+      }
+
+      if (camera === "denied" || microphone === "denied") {
+        setStatus("denied");
+        return false;
+      }
+
+      setStatus("idle");
+      return false;
+    } finally {
+      acquiringRef.current = false;
     }
-
-    const { camera, microphone } = await queryPermissionStates();
-
-    if (camera === "granted" && microphone === "granted") {
-      setStatus("error");
-      return;
-    }
-
-    if (camera === "denied" || microphone === "denied") {
-      setStatus("denied");
-      return;
-    }
-
-    setStatus("idle");
   }, [applyStream, attachSharedStream]);
 
   const setMuted = useCallback((muted: boolean) => {
-    streamRef.current
-      ?.getAudioTracks()
-      .forEach((track) => {
-        track.enabled = !muted;
-      });
+    streamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !muted;
+    });
   }, []);
 
   const setCameraEnabled = useCallback((enabled: boolean) => {
-    streamRef.current
-      ?.getVideoTracks()
-      .forEach((track) => {
-        track.enabled = enabled;
-      });
+    streamRef.current?.getVideoTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
     setCameraEnabledState(enabled);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (status !== "ready") return;
     syncVideo();
-  }, [status, syncVideo]);
+    const raf = requestAnimationFrame(() => syncVideo());
+    const retry = window.setTimeout(() => syncVideo(), 150);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(retry);
+    };
+  }, [status, syncVideo, cameraEnabled]);
 
   useEffect(() => {
     if (probeStartedRef.current) return;
@@ -187,22 +252,28 @@ export function useMediaStream() {
         return;
       }
 
-      const stream = await tryAcquireStream();
-      if (cancelled) {
-        stream?.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
-      if (stream) {
-        applyStream(stream);
-        return;
-      }
-
       const { camera, microphone } = await queryPermissionStates();
       if (cancelled) return;
 
       if (camera === "denied" || microphone === "denied") {
         setStatus("denied");
+        return;
+      }
+
+      // Only auto-attach when the browser already granted both permissions.
+      // Never call getUserMedia on first paint — Chrome/Safari block prompts
+      // without a user gesture (common on ngrok and other tunnel URLs).
+      if (camera === "granted" && microphone === "granted") {
+        const stream = await tryAcquireStream();
+        if (cancelled) {
+          stream?.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        if (stream) {
+          applyStream(stream);
+          return;
+        }
+        if (!cancelled) setStatus("error");
         return;
       }
 
@@ -224,7 +295,14 @@ export function useMediaStream() {
     let micPerm: PermissionStatus | null = null;
 
     const onPermissionChange = () => {
-      if (disposed || status === "ready" || status === "requesting") return;
+      if (
+        disposed ||
+        acquiringRef.current ||
+        status === "ready" ||
+        status === "requesting"
+      ) {
+        return;
+      }
 
       const cameraState = cameraPerm?.state;
       const micState = micPerm?.state;
@@ -270,6 +348,7 @@ export function useMediaStream() {
 
   return {
     localRef,
+    attachLocalVideo,
     status,
     cameraEnabled,
     requestAccess,

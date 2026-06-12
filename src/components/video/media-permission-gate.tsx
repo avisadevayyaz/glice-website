@@ -5,11 +5,13 @@ import type { MediaStatus } from "@/features/video/hooks/use-media-stream";
 
 type MediaPermissionGateProps = {
   status: MediaStatus;
-  onRequest: () => void;
+  exiting?: boolean;
+  onRequest: () => void | Promise<boolean>;
 };
 
 export function MediaPermissionGate({
   status,
+  exiting = false,
   onRequest,
 }: MediaPermissionGateProps) {
   const isRequesting = status === "requesting";
@@ -17,12 +19,12 @@ export function MediaPermissionGate({
   const isDeviceError = status === "error";
 
   const handleRetry = () => {
-    onRequest();
+    void onRequest();
   };
 
   return (
     <div
-      className="media-permission-gate"
+      className={`media-permission-gate${exiting ? " media-permission-gate--exiting" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="media-gate-title"

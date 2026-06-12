@@ -15,6 +15,7 @@ import { buildSessionCookieValue } from "@/features/auth/lib/session-cookie";
 import { tokenStorage } from "@/features/auth/lib/token-storage";
 
 import { chatSocket } from "@/features/chat/services/socket-service";
+import { useCallHistoryStore } from "@/features/video/stores/call-history-store";
 
 import type { GliceUser } from "@/features/auth/types";
 
@@ -375,6 +376,7 @@ export function UiSessionProvider({
   const logout = useCallback(() => {
 
     chatSocket.disconnect();
+    useCallHistoryStore.getState().reset();
 
     clearAuthSession();
 

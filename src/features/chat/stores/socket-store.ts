@@ -6,8 +6,11 @@ type SocketStore = {
   statusLabel: string;
   isIslandVisible: boolean;
   error: string | null;
+  serverAlert: string | null;
   setPhase: (phase: SocketConnectionPhase, label?: string) => void;
   setError: (error: string | null) => void;
+  showServerAlert: (message: string) => void;
+  dismissServerAlert: () => void;
   hideIsland: () => void;
   reset: () => void;
 };
@@ -39,6 +42,7 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
   statusLabel: "",
   isIslandVisible: false,
   error: null,
+  serverAlert: null,
 
   setPhase: (phase, label) => {
     if (hideTimer) {
@@ -86,6 +90,25 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       phase: error ? "error" : get().phase,
       statusLabel: error ?? "Connection failed",
       isIslandVisible: Boolean(error),
+      serverAlert: error ?? get().serverAlert,
+    }),
+
+  showServerAlert: (message) =>
+    set({
+      serverAlert: message,
+      error: message,
+      phase: "error",
+      statusLabel: message,
+      isIslandVisible: true,
+    }),
+
+  dismissServerAlert: () =>
+    set({
+      serverAlert: null,
+      error: null,
+      isIslandVisible: false,
+      phase: get().phase === "error" ? "disconnected" : get().phase,
+      statusLabel: get().phase === "disconnected" ? "Offline" : "",
     }),
 
   hideIsland: () => set({ isIslandVisible: false }),
@@ -100,6 +123,7 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       statusLabel: "",
       isIslandVisible: false,
       error: null,
+      serverAlert: null,
     });
   },
 }));

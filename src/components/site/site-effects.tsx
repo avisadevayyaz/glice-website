@@ -1,7 +1,8 @@
 "use client";
 
+import { useMounted } from "@/hooks/use-mounted";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 const REVEAL_BOUND_ATTR = "data-reveal-bound";
 
@@ -36,8 +37,12 @@ function bindNewRevealElements(observer: IntersectionObserver) {
 
 export function SiteEffects() {
   const pathname = usePathname();
+  const mounted = useMounted();
+  const bindScheduledRef = useRef(false);
 
   useEffect(() => {
+    if (!mounted) return;
+
     const onScroll = () => {
       if (window.scrollY > 12) {
         document.body.classList.add("is-scrolled");
@@ -63,30 +68,48 @@ export function SiteEffects() {
 
     const bindReveals = () => bindNewRevealElements(observer);
 
-    bindReveals();
+    const scheduleBindReveals = () => {
+      if (bindScheduledRef.current) return;
+      bindScheduledRef.current = true;
+      requestAnimationFrame(() => {
+        bindScheduledRef.current = false;
+        bindReveals();
+      });
+    };
 
-    const mutationObserver = new MutationObserver(bindReveals);
-    mutationObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
+    // First bind after hydration — never mutate reveal nodes during SSR/hydration.
+    const initialId = window.setTimeout(scheduleBindReveals, 0);
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleBindReveals();
     });
 
-    const rafId = requestAnimationFrame(bindReveals);
-    const timeoutIds = [100, 300, 600].map((delay) =>
-      window.setTimeout(bindReveals, delay),
+    const mutationStartId = window.setTimeout(() => {
+      mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    }, 50);
+
+    const retryIds = [150, 400, 800].map((delay) =>
+      window.setTimeout(scheduleBindReveals, delay),
     );
 
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.clearTimeout(initialId);
+      window.clearTimeout(mutationStartId);
+      retryIds.forEach(clearTimeout);
       observer.disconnect();
       mutationObserver.disconnect();
-      cancelAnimationFrame(rafId);
-      timeoutIds.forEach(clearTimeout);
       document
         .querySelectorAll(`[${REVEAL_BOUND_ATTR}="true"]`)
-        .forEach((element) => element.removeAttribute(REVEAL_BOUND_ATTR));
+        .forEach((element) => {
+          element.removeAttribute(REVEAL_BOUND_ATTR);
+          (element as HTMLElement).style.transitionDelay = "";
+        });
     };
-  }, [pathname]);
+  }, [mounted, pathname]);
 
   return null;
 }

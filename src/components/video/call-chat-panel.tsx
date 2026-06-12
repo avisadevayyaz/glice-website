@@ -1,73 +1,33 @@
 "use client";
 
+import type { VideoChatMessage } from "@/features/video/types";
 import { useEffect, useRef, useState } from "react";
-
-type ChatMessage = {
-  id: string;
-  from: "you" | "partner";
-  text: string;
-  time: string;
-};
-
-const PARTNER_GREETINGS = [
-  "Hey! Nice to meet you 👋",
-  "Hi there! How's your day going?",
-  "Hello! Glad we matched nearby.",
-];
-
-const PARTNER_REPLIES = [
-  "Haha same here!",
-  "That's cool!",
-  "Tell me more 😄",
-  "Nice!",
-  "Where are you from?",
-];
-
-function nowLabel() {
-  return new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 type CallChatPanelProps = {
   partnerName: string;
   active: boolean;
+  messages: VideoChatMessage[];
+  layoutSide?: "left" | "right";
+  onSend: (text: string) => void;
 };
 
-export function CallChatPanel({ partnerName, active }: CallChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function CallChatPanel({
+  partnerName,
+  active,
+  messages,
+  layoutSide = "right",
+  onSend,
+}: CallChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
-  const seededRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!active) {
-      seededRef.current = null;
-      setMessages([]);
       setDraft("");
       setExpanded(true);
-      return;
     }
-
-    if (seededRef.current === partnerName) return;
-    seededRef.current = partnerName;
-
-    const greeting =
-      PARTNER_GREETINGS[Math.floor(Math.random() * PARTNER_GREETINGS.length)] ??
-      "Hey!";
-
-    setMessages([
-      {
-        id: `greet-${partnerName}`,
-        from: "partner",
-        text: greeting,
-        time: nowLabel(),
-      },
-    ]);
-    setExpanded(true);
-  }, [active, partnerName]);
+  }, [active]);
 
   useEffect(() => {
     if (!expanded || !listRef.current) return;
@@ -77,33 +37,9 @@ export function CallChatPanel({ partnerName, active }: CallChatPanelProps) {
   const sendMessage = () => {
     const text = draft.trim();
     if (!text || !active) return;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `you-${Date.now()}`,
-        from: "you",
-        text,
-        time: nowLabel(),
-      },
-    ]);
+    onSend(text);
     setDraft("");
     setExpanded(true);
-
-    window.setTimeout(() => {
-      const reply =
-        PARTNER_REPLIES[Math.floor(Math.random() * PARTNER_REPLIES.length)] ??
-        "Nice!";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `partner-${Date.now()}`,
-          from: "partner",
-          text: reply,
-          time: nowLabel(),
-        },
-      ]);
-    }, 900 + Math.random() * 800);
   };
 
   if (!active) return null;
@@ -112,7 +48,7 @@ export function CallChatPanel({ partnerName, active }: CallChatPanelProps) {
 
   return (
     <div
-      className={`hero-chat-dock${expanded ? " hero-chat-dock--expanded" : ""}`}
+      className={`hero-chat-dock hero-chat-dock--${layoutSide}${expanded ? " hero-chat-dock--expanded" : ""}`}
       aria-label={`Chat with ${partnerName}`}
     >
       <div className="hero-chat-scrim" aria-hidden />
@@ -127,7 +63,7 @@ export function CallChatPanel({ partnerName, active }: CallChatPanelProps) {
           <i className="ri-chat-3-fill" aria-hidden />
           <span className="hero-chat-pill-text">
             {lastMessage
-              ? `${lastMessage.from === "you" ? "You" : partnerName}: ${lastMessage.text}`
+              ? `${lastMessage.isMine ? "You" : partnerName}: ${lastMessage.text}`
               : `Chat with ${partnerName}`}
           </span>
           <span className="hero-chat-pill-count">{messages.length}</span>
@@ -150,17 +86,21 @@ export function CallChatPanel({ partnerName, active }: CallChatPanelProps) {
           </div>
 
           <div className="hero-chat-float-messages" ref={listRef}>
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`hero-chat-float-bubble hero-chat-float-bubble--${message.from}`}
-              >
-                <span className="hero-chat-float-bubble-text">
-                  {message.text}
-                </span>
-                <time>{message.time}</time>
-              </div>
-            ))}
+            {messages.length === 0 ? (
+              <p className="hero-chat-empty">Say hi to start chatting</p>
+            ) : (
+              messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`hero-chat-float-bubble hero-chat-float-bubble--${message.isMine ? "you" : "partner"}`}
+                >
+                  <span className="hero-chat-float-bubble-text">
+                    {message.text}
+                  </span>
+                  <time>{message.time}</time>
+                </div>
+              ))
+            )}
           </div>
 
           <form

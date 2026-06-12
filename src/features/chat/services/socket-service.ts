@@ -22,8 +22,27 @@ type ConnectParams = {
   location?: UserLocation;
 };
 
+const SERVER_OFFLINE_MESSAGE =
+  "Server is not responding. Please check your connection and try again.";
+
+function parseSocketErrorPayload(raw: unknown): string | null {
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (raw && typeof raw === "object") {
+    const map = raw as Record<string, unknown>;
+    for (const key of ["message", "error", "msg", "data"]) {
+      const val = map[key];
+      if (typeof val === "string" && val.trim()) return val.trim();
+    }
+  }
+  return null;
+}
+
 class ChatSocketService {
   private socket: Socket | null = null;
+  private externalHandlers = new Map<
+    string,
+    Set<(...args: unknown[]) => void>
+  >();
   private user: GliceUser | null = null;
   private location: UserLocation = defaultLocation();
   private currentRoomId = "";
@@ -70,7 +89,18 @@ class ChatSocketService {
     });
 
     this.registerListeners();
+    this.attachExternalListeners();
     this.bindVisibilityReconnect();
+  }
+
+  private attachExternalListeners(socket: Socket | null = this.socket): void {
+    if (!socket) return;
+    for (const [event, handlers] of this.externalHandlers) {
+      for (const handler of handlers) {
+        socket.off(event, handler);
+        socket.on(event, handler);
+      }
+    }
   }
 
   private bindVisibilityReconnect(): void {
@@ -165,8 +195,10 @@ class ChatSocketService {
       if (token && socket) {
         socket.auth = { auth: token };
       }
+      useSocketStore.getState().dismissServerAlert();
       useSocketStore.getState().setPhase("connected");
       this.connectedEmail = null;
+      this.attachExternalListeners(socket);
       if (this.user?.email) {
         this.emitConnectUser();
       }
@@ -182,9 +214,15 @@ class ChatSocketService {
       useSocketStore.getState().setPhase("reconnecting");
     });
 
+    socket.io.on("reconnect_failed", () => {
+      useSocketStore.getState().showServerAlert(SERVER_OFFLINE_MESSAGE);
+    });
+
     socket.io.on("reconnect", () => {
+      useSocketStore.getState().dismissServerAlert();
       this.connectedEmail = null;
       useSocketStore.getState().setPhase("connected", "Back online");
+      this.attachExternalListeners(socket);
       if (this.user?.email) {
         this.emitConnectUser();
       }
@@ -202,7 +240,7 @@ class ChatSocketService {
     });
 
     socket.on("connect_error", () => {
-      useSocketStore.getState().setError("Unable to reach chat server");
+      useSocketStore.getState().setPhase("reconnecting");
     });
 
     socket.on("user_connected", (data) => {
@@ -222,6 +260,14 @@ class ChatSocketService {
       this.convosLoading = false;
       useRoomStore.getState().setLoading(false);
       useSocketStore.getState().setPhase("ready");
+    });
+
+    socket.on("boost_error", () => {
+      /* logged server-side; no user popup */
+    });
+
+    socket.on("sparks_error", () => {
+      /* logged server-side; no user popup */
     });
 
     socket.on("all_messages", (data) => {
@@ -407,6 +453,10 @@ class ChatSocketService {
     this.socket.emit("connect_user", { email: this.user.email });
   }
 
+  setLocation(location: UserLocation): void {
+    this.location = location;
+  }
+
   fetchConversations(): void {
     if (!this.socket || !this.user || this.convosLoading) return;
     if (!this.user._id?.trim()) return;
@@ -582,8 +632,116 @@ class ChatSocketService {
     return Boolean(this.socket?.connected);
   }
 
+  /** Wait until the socket transport is connected (or timeout). */
+  waitUntilConnected(timeoutMs = 12_000): Promise<boolean> {
+    if (this.socket?.connected) return Promise.resolve(true);
+
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      let onConnect: (() => void) | null = null;
+
+      const cleanup = () => {
+        if (onConnect && this.socket) {
+          this.socket.off("connect", onConnect);
+        }
+      };
+
+      const poll = () => {
+        const socket = this.socket;
+        if (socket?.connected) {
+          cleanup();
+          resolve(true);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          cleanup();
+          resolve(false);
+          return;
+        }
+
+        if (socket && !onConnect) {
+          onConnect = () => {
+            cleanup();
+            resolve(true);
+          };
+          socket.on("connect", onConnect);
+        }
+
+        window.setTimeout(poll, 150);
+      };
+
+      poll();
+    });
+  }
+
+  /**
+   * Ensures connect_user was emitted and the server had time to register the session.
+   * Mirrors Flutter socket init before discover.
+   */
+  ensureSessionReady(timeoutMs = 2500): Promise<boolean> {
+    const socket = this.socket;
+    if (!socket?.connected || !this.user?.email) return Promise.resolve(false);
+
+    if (this.connectedEmail === this.user.email) {
+      return Promise.resolve(true);
+    }
+
+    this.emitConnectUser();
+
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        socket.off("user_connected", onUserConnected);
+        window.clearTimeout(timer);
+        resolve(ok);
+      };
+
+      const onUserConnected = () => finish(true);
+      const timer = window.setTimeout(() => finish(true), timeoutMs);
+
+      socket.once("user_connected", onUserConnected);
+    });
+  }
+
   getUser(): GliceUser | null {
     return this.user;
+  }
+
+  /** Shared socket emit for spark dating / video events. */
+  emitEvent(event: string, payload?: unknown): void {
+    this.socket?.emit(event, payload);
+  }
+
+  /** Register a listener on the shared socket (e.g. spark dating). */
+  onEvent(event: string, handler: (...args: unknown[]) => void): void {
+    if (!this.externalHandlers.has(event)) {
+      this.externalHandlers.set(event, new Set());
+    }
+    this.externalHandlers.get(event)!.add(handler);
+    this.socket?.on(event, handler);
+  }
+
+  offEvent(event: string, handler?: (...args: unknown[]) => void): void {
+    const handlers = this.externalHandlers.get(event);
+    if (handler) {
+      handlers?.delete(handler);
+      this.socket?.off(event, handler);
+      if (handlers?.size === 0) {
+        this.externalHandlers.delete(event);
+      }
+      return;
+    }
+
+    if (handlers) {
+      for (const bound of handlers) {
+        this.socket?.off(event, bound);
+      }
+      this.externalHandlers.delete(event);
+    }
+    this.socket?.off(event);
   }
 }
 

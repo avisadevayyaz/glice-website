@@ -6,6 +6,7 @@ import { ChatRouteEffect } from "@/components/site/chat-route-effect";
 import { SiteEffects } from "@/components/site/site-effects";
 import { UiSessionProvider } from "@/components/site/ui-session-provider";
 import { ChatNotificationHost } from "@/features/chat/components/chat-notification-host";
+import { ServerAlertHost } from "@/features/chat/components/server-alert-host";
 import { ChatSocketInitializer } from "@/features/chat/hooks/use-chat-init";
 import type { GliceUser } from "@/features/auth/types";
 import { GoogleAuthProvider } from "@/providers/google-auth-provider";
@@ -35,6 +36,7 @@ export function Providers({
           <Suspense fallback={null}>
             <ChatNotificationHost />
           </Suspense>
+          <ServerAlertHost />
           <ChatRouteEffect />
           <SiteEffects />
           <PageTransition>{children}</PageTransition>

@@ -2,6 +2,16 @@ export type UserLocation = {
   type?: string;
   coordinates?: [number, number];
   text?: string;
+  name?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  district?: string;
+  latitude?: number;
+  longitude?: number;
+  mapboxId?: string;
+  fullAddress?: string;
+  placeFormatted?: string;
 };
 
 export type UserPhone = {
@@ -9,6 +19,12 @@ export type UserPhone = {
   phoneCode?: string;
   country?: string;
   number?: string;
+};
+
+export type UserMembership = {
+  planId?: string;
+  orderId?: string;
+  rewardPlan?: boolean;
 };
 
 export type GliceUser = {
@@ -23,6 +39,7 @@ export type GliceUser = {
   ipAddress?: string;
   referralCode?: string;
   location?: UserLocation;
+  membership?: UserMembership;
   verification?: { status: string; deadline?: string };
   verificationStatus?: string;
   isBan?: boolean;
