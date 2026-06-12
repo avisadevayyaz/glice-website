@@ -150,16 +150,9 @@ export function VideoHero() {
     [remoteStream],
   );
 
-  const mediaBinding =
-    mediaStatus === "requesting" || mediaStatus === "ready";
-  const needsPermissionOverlay =
-    mediaStatus === "idle" ||
-    mediaStatus === "denied" ||
-    mediaStatus === "error" ||
-    mediaStatus === "requesting";
-  const showVideoStage = mounted && mediaBinding;
-  const isCheckingMedia = !mounted;
+  const showVideoStage = mounted && mediaStatus === "ready";
   const isBusy = callStage === "searching";
+  const pendingStartRef = useRef(false);
   const isConnecting = callStage === "connecting";
   const inCall = callStage === "connected";
   const isInVideoSession =
@@ -183,36 +176,34 @@ export function VideoHero() {
   const [permissionGateOpen, setPermissionGateOpen] = useState(false);
   const [permissionGateExiting, setPermissionGateExiting] = useState(false);
 
+  const buildFilter = useCallback(
+    () => ({
+      gender,
+      minAge,
+      maxAge,
+      maxDistance,
+    }),
+    [gender, minAge, maxAge, maxDistance],
+  );
+
   useEffect(() => {
-    if (!mounted || mediaStatus !== "idle") return;
+    if (!pendingStartRef.current || mediaStatus !== "ready") return;
 
-    const timer = window.setTimeout(() => {
-      setPermissionGateOpen(true);
-    }, 350);
-
-    return () => window.clearTimeout(timer);
-  }, [mounted, mediaStatus]);
+    pendingStartRef.current = false;
+    syncVideo();
+    startSearch(buildFilter());
+  }, [mediaStatus, syncVideo, startSearch, buildFilter]);
 
   useEffect(() => {
-    if (!mounted) return;
-
-    if (needsPermissionOverlay) {
-      if (mediaStatus !== "idle") {
-        setPermissionGateOpen(true);
-      }
-      setPermissionGateExiting(false);
-      return;
-    }
-
-    if (mediaStatus !== "ready") return;
+    if (!permissionGateOpen || mediaStatus !== "ready") return;
 
     setPermissionGateExiting(true);
     const timer = window.setTimeout(() => {
       setPermissionGateOpen(false);
       setPermissionGateExiting(false);
-    }, 280);
+    }, 240);
     return () => window.clearTimeout(timer);
-  }, [mounted, needsPermissionOverlay, mediaStatus]);
+  }, [permissionGateOpen, mediaStatus]);
 
   useEffect(() => {
     if (mediaStatus !== "ready" || permissionGateOpen) return;
@@ -279,16 +270,6 @@ export function VideoHero() {
     return () => document.removeEventListener("mousedown", close);
   }, [genderMenuOpen]);
 
-  const buildFilter = useCallback(
-    () => ({
-      gender,
-      minAge,
-      maxAge,
-      maxDistance,
-    }),
-    [gender, minAge, maxAge, maxDistance],
-  );
-
   const startVideo = async () => {
     if (!isLoggedIn) {
       openAuth("login");
@@ -301,12 +282,18 @@ export function VideoHero() {
     }
 
     if (!mediaReady) {
-      const granted = await requestAccess();
-      if (!granted) return;
+      pendingStartRef.current = true;
+      setPermissionGateOpen(true);
+      setPermissionGateExiting(false);
+      return;
     }
 
     syncVideo();
     startSearch(buildFilter());
+  };
+
+  const handlePermissionRequest = async () => {
+    return requestAccess();
   };
 
   const toggleMute = () => {
@@ -327,18 +314,7 @@ export function VideoHero() {
         className={`video-hero${isInVideoSession ? " video-hero--session" : ""}`}
         id="videoHero"
       >
-        {permissionGateOpen && (
-          <MediaPermissionGate
-            status={mediaStatus}
-            exiting={permissionGateExiting}
-            onRequest={requestAccess}
-          />
-        )}
-
-        <div
-          className={`video-hero-inner${permissionGateOpen && !permissionGateExiting ? " video-hero-inner--locked" : ""}`}
-          aria-hidden={permissionGateOpen && !permissionGateExiting}
-        >
+        <div className="video-hero-inner">
           <div className="hero-dual-shell">
             {callError &&
               (callStage === "idle" || callStage === "connecting") && (
@@ -348,6 +324,13 @@ export function VideoHero() {
             )}
 
             <div className="hero-dual-wrap">
+              {permissionGateOpen && (
+                <MediaPermissionGate
+                  status={mediaStatus}
+                  exiting={permissionGateExiting}
+                  onRequest={handlePermissionRequest}
+                />
+              )}
               <div className="hero-dual">
                 <div className="hero-panel hero-panel--remote">
                   <div
@@ -693,7 +676,7 @@ export function VideoHero() {
                     type="button"
                     className="hero-toolbar-btn hero-toolbar-btn--start"
                     onClick={startVideo}
-                    disabled={isBusy || isCheckingMedia}
+                    disabled={isBusy}
                   >
                     <i className="ri-vidicon-fill" aria-hidden />
                     <span>{isBusy ? "Searching…" : "Start"}</span>

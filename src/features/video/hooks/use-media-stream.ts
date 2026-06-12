@@ -9,7 +9,6 @@ import {
 } from "react";
 
 export type MediaStatus =
-  | "checking"
   | "idle"
   | "requesting"
   | "ready"
@@ -313,7 +312,7 @@ export function useMediaStream() {
       if (cancelled) return;
 
       if (camera === "denied" || microphone === "denied") {
-        setStatus("denied");
+        setStatus("idle");
         return;
       }
 
@@ -376,7 +375,10 @@ export function useMediaStream() {
         return;
       }
 
-      if (cameraState === "denied" || micState === "denied") {
+      if (
+        (cameraState === "denied" || micState === "denied") &&
+        acquiringRef.current
+      ) {
         setStatus("denied");
       }
     };

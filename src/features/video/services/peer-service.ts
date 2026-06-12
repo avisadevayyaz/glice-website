@@ -32,6 +32,7 @@ export class PeerService {
   private dialTimer: number | null = null;
   private dialStartedAt = 0;
   private lastOutboundAt = 0;
+  private unavailableStreak = 0;
 
   setLocalStream(stream: MediaStream | null) {
     this.localStream = stream;
@@ -68,24 +69,33 @@ export class PeerService {
   /**
    * Flutter init(userId, iceServersJson, roomIdOptional).
    * Reuses peer when it exists; creates peer when null (after diconnectPeer).
+   * @param dialPrimary Partner user id (PeerJS peer id) — preferred dial target.
+   * @param dialFallback Optional secondary id (never `room_*` chat ids).
    */
   init(
     userId: string,
     iceServers: RTCIceServer[],
-    roomId?: string | null,
-    fallbackTarget?: string | null,
+    dialPrimary?: string | null,
+    dialFallback?: string | null,
   ): Promise<void> {
     const id = userId.trim();
-    const targets = this.resolveDialTargets(id, roomId, fallbackTarget);
+    const targets = this.resolveDialTargets(id, dialPrimary, dialFallback);
 
     this.peerUserId = id;
     this.iceServers = iceServers;
+    this.unavailableStreak = 0;
 
     if (this.peer) {
       if (targets.length > 0) {
         this.queueDial(targets);
         if (this.peerOpen) {
           this.beginDialLoop();
+        } else {
+          try {
+            this.peer.reconnect();
+          } catch {
+            /* ignore */
+          }
         }
       }
       return this.peerOpen
@@ -107,16 +117,18 @@ export class PeerService {
 
   private resolveDialTargets(
     myId: string,
-    roomId?: string | null,
+    primary?: string | null,
     fallback?: string | null,
   ): string[] {
     const out: string[] = [];
     const add = (value?: string | null) => {
       const id = value?.trim();
       if (!id || id === myId) return;
+      // Chat room ids (room_userA_userB) are not PeerJS peer ids.
+      if (id.startsWith("room_")) return;
       if (!out.includes(id)) out.push(id);
     };
-    add(roomId);
+    add(primary);
     add(fallback);
     return out;
   }
@@ -124,6 +136,7 @@ export class PeerService {
   private queueDial(targets: string[]) {
     this.dialTargets = targets;
     this.dialTargetIndex = 0;
+    this.unavailableStreak = 0;
     this.pendingRoomId = targets[0] ?? null;
   }
 
@@ -192,7 +205,28 @@ export class PeerService {
           errType === "peer-unavailable"
         ) {
           if (this.dialTargets.length > 0 && !this.remoteConnected) {
-            console.log("[Peer] Remote not ready yet — retrying dial:", msg);
+            this.unavailableStreak += 1;
+            if (
+              this.unavailableStreak >= 6 &&
+              this.dialTargetIndex < this.dialTargets.length - 1
+            ) {
+              this.dialTargetIndex += 1;
+              this.unavailableStreak = 0;
+              this.activeCalls.forEach((call) => {
+                try {
+                  call.close();
+                } catch {
+                  /* ignore */
+                }
+              });
+              this.activeCalls = [];
+              console.log(
+                "[Peer] Switching dial target →",
+                this.currentDialTarget(),
+              );
+            } else {
+              console.log("[Peer] Remote not ready yet — retrying dial:", msg);
+            }
             return;
           }
         }
@@ -305,6 +339,7 @@ export class PeerService {
       }
       this.remoteStreamCall = call;
       this.remoteConnected = true;
+      this.unavailableStreak = 0;
       this.stopDialLoop();
       console.log("[Peer] Remote stream received");
       this.callbacks?.onRemoteStream(remoteStream);
@@ -357,6 +392,7 @@ export class PeerService {
     this.remoteConnected = false;
     this.dialTargets = [];
     this.dialTargetIndex = 0;
+    this.unavailableStreak = 0;
   }
 
   /** Flutter diconnectPeer() — full teardown. */
@@ -381,6 +417,16 @@ export class PeerService {
     }
     this.peer = null;
     this.peerUserId = null;
+    this.unavailableStreak = 0;
+  }
+
+  /** Reset signaling for a new match (rematch / stale connecting). */
+  resetForNewMatch() {
+    this.stopDialLoop();
+    this.endCall();
+    if (this.peer && !this.peerOpen) {
+      this.disconnect();
+    }
   }
 }
 

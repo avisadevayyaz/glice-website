@@ -60,6 +60,7 @@ class SparkVideoService {
   private matchCelebrationTimer: ReturnType<typeof setTimeout> | null = null;
   private lobbyListenerBound = false;
   private lobbyJoinPromise: Promise<void> | null = null;
+  private matchGeneration = 0;
 
   private readonly onSocketPeerFound = (raw: unknown) => {
     const data = raw as PeerFoundPayload;
@@ -259,11 +260,12 @@ class SparkVideoService {
     if (!this.user) return;
 
     const generation = ++this.searchGeneration;
+    this.matchGeneration += 1;
     const store = useVideoCallStore.getState();
 
     this.clearConnectTimeout();
     if (store.stage === "connecting") {
-      this.teardownPeer();
+      peerService.resetForNewMatch();
     }
 
     const socketReady = await chatSocket.waitUntilConnected(12_000);
@@ -483,8 +485,17 @@ class SparkVideoService {
   private async onPeerFound(data: PeerFoundPayload) {
     if (!this.user) return;
 
+    const matchGen = ++this.matchGeneration;
     const store = useVideoCallStore.getState();
-    if (store.stage === "connected" || store.stage === "connecting") return;
+
+    if (store.stage === "connected") return;
+
+    // Rematch fix: replace stale connecting attempt (backend matched, WebRTC didn't).
+    this.clearConnectTimeout();
+    peerService.resetForNewMatch();
+    if (store.stage === "connecting") {
+      store.clearMediaState();
+    }
 
     store.setRoomId(data.roomId);
     store.setPartner({
@@ -493,12 +504,15 @@ class SparkVideoService {
       profileUrl: data.otherUserProfilePic ?? "",
     });
     store.setStage("connecting");
+    store.setError(null);
 
     this.stopSearchTimer();
 
     const stream = await ensureLocalStream(
       () => this.handlers?.getLocalStream() ?? null,
     );
+    if (matchGen !== this.matchGeneration) return;
+
     if (!stream) {
       store.setError(
         "Camera not available. Allow camera access and try again.",
@@ -507,18 +521,34 @@ class SparkVideoService {
       return;
     }
     peerService.setLocalStream(stream);
-    await this.ensureIceServers();
+    await this.ensureIceServers(true);
+    if (matchGen !== this.matchGeneration) return;
 
-    const roomId = data.roomId || data.otherUser;
-    const otherUser = data.otherUser;
+    const otherUser = data.otherUser?.trim();
+    if (!otherUser) {
+      store.setError("Invalid match from server. Tap Start to try again.");
+      store.setStage("idle");
+      return;
+    }
 
-    // Flutter: init(userId, iceServers, roomId) — also try otherUser if roomId is self
-    void peerService
-      .init(this.user._id, this.iceServers, roomId, otherUser)
-      .catch((err) => {
-        console.warn("[Spark] Peer init on match failed:", err);
-      });
+    // PeerJS dials partner user id — not the chat `room_*` id.
+    try {
+      await peerService.init(
+        this.user._id,
+        this.iceServers,
+        otherUser,
+        data.roomId,
+      );
+    } catch (err) {
+      if (matchGen !== this.matchGeneration) return;
+      console.warn("[Spark] Peer init on match failed:", err);
+      store.setError("Could not start video connection. Tap Start to try again.");
+      peerService.disconnect();
+      store.setStage("idle");
+      return;
+    }
 
+    if (matchGen !== this.matchGeneration) return;
     this.startConnectTimeout();
   }
 
