@@ -37,6 +37,22 @@ export class PeerService {
     this.localStream = stream;
   }
 
+  /** Swap outgoing video mid-call when AR filter or camera pipeline changes. */
+  replaceLocalVideoTrack(stream: MediaStream | null) {
+    if (!stream) return;
+    this.localStream = stream;
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack) return;
+
+    for (const call of this.activeCalls) {
+      const pc = (call as MediaConnection & { peerConnection?: RTCPeerConnection })
+        .peerConnection;
+      if (!pc) continue;
+      const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+      void sender?.replaceTrack(videoTrack);
+    }
+  }
+
   setCallbacks(callbacks: PeerCallbacks | null) {
     this.callbacks = callbacks;
   }

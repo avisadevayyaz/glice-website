@@ -2371,6 +2371,7 @@ body.video-session-active {
 }
 .hero-video-cell--local {
     grid-column: 2;
+    pointer-events: auto;
 }
 .hero-video-stage--local-only .hero-video-cell--local {
     grid-column: 2;
@@ -2618,6 +2619,10 @@ body.video-session-active {
     left: 10px;
     right: calc(50% + 8px);
 }
+/* Lift chat when lens rail sits on your camera panel */
+.hero-dual-wrap:has(.ar-filter-rail) .hero-chat-dock {
+    bottom: 92px;
+}
 @media (max-width: 720px) {
     .hero-chat-dock--right {
         left: 10px;
@@ -2630,6 +2635,10 @@ body.video-session-active {
         right: 10px;
         top: 10px;
         bottom: auto;
+    }
+    .hero-dual-wrap:has(.ar-filter-rail) .hero-chat-dock--left {
+        top: auto;
+        bottom: 92px;
     }
 }
 .hero-chat-dock .hero-chat-pill,
@@ -5140,4 +5149,159 @@ a.link-accent:hover { color: var(--muted); }
 .server-alert-close:hover {
     color: var(--text);
     background: rgba(255, 255, 255, 0.1);
+}
+
+/* AR lens rail — your camera panel only */
+.ar-filter-rail {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    pointer-events: none;
+    padding: 0 0 8px;
+}
+.ar-filter-rail-fade {
+    position: absolute;
+    inset: -28px 0 0;
+    background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.72) 72%);
+    pointer-events: none;
+}
+.ar-filter-rail-scroll {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 16px 4px;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    pointer-events: auto;
+}
+.ar-filter-rail-scroll::-webkit-scrollbar {
+    display: none;
+}
+.ar-filter-lens {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    padding: 0;
+    scroll-snap-align: center;
+    transition: transform .15s ease;
+}
+.ar-filter-lens:hover {
+    transform: translateY(-2px);
+}
+.ar-filter-lens:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+.ar-filter-lens-ring {
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    border: 2.5px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.ar-filter-lens.is-active .ar-filter-lens-ring {
+    border-color: var(--primary);
+    box-shadow:
+        0 0 0 2px rgba(50, 230, 161, 0.25),
+        0 0 20px rgba(50, 230, 161, 0.35);
+    transform: scale(1.08);
+}
+.ar-filter-lens-emoji {
+    font-size: 1.75rem;
+    line-height: 1;
+}
+.ar-filter-lens-preview {
+    width: 88%;
+    height: 88%;
+    object-fit: contain;
+    pointer-events: none;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+}
+.ar-filter-lens-none {
+    font-size: 1.5rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+.ar-filter-lens-label {
+    font-size: .65rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.88);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+    max-width: 64px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ar-filter-lens.is-active .ar-filter-lens-label {
+    color: var(--primary);
+}
+.ar-filter-rail-status {
+    position: absolute;
+    top: 2px;
+    right: 14px;
+    z-index: 2;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    display: grid;
+    place-items: center;
+    color: var(--primary);
+    pointer-events: none;
+}
+.ar-filter-rail-error {
+    position: absolute;
+    top: -32px;
+    left: 16px;
+    right: 16px;
+    margin: 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(127, 29, 29, 0.85);
+    color: #fecaca;
+    font-size: .68rem;
+    text-align: center;
+    pointer-events: none;
+}
+.ar-filter-spinner {
+    animation: ar-spin 0.9s linear infinite;
+}
+@keyframes ar-spin {
+    to { transform: rotate(360deg); }
+}
+@media (max-width: 720px) {
+    .hero-dual-wrap:has(.ar-filter-rail) .hero-chat-dock {
+        bottom: max(88px, calc(80px + env(safe-area-inset-bottom)));
+    }
+    .ar-filter-rail {
+        padding-bottom: max(6px, env(safe-area-inset-bottom));
+    }
+    .ar-filter-lens-ring {
+        width: 52px;
+        height: 52px;
+    }
+    .ar-filter-lens-emoji {
+        font-size: 1.55rem;
+    }
+    .ar-filter-rail-scroll {
+        gap: 12px;
+        padding-inline: 12px;
+    }
 }

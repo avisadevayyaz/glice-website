@@ -31,7 +31,6 @@ export function useVideoCall() {
   useEffect(() => {
     if (!isLoggedIn || !user?._id) {
       if (boundRef.current) {
-        sparkVideoService.leaveLobby();
         sparkVideoService.unbind();
         const store = useVideoCallStore.getState();
         store.setStage("idle");
@@ -49,10 +48,8 @@ export function useVideoCall() {
     sparkVideoService.bind(user, {
       getLocalStream: () => getSharedMediaStream(),
     });
-    sparkVideoService.joinLobby();
 
     return () => {
-      sparkVideoService.leaveLobby();
       sparkVideoService.unbind();
       boundRef.current = false;
     };

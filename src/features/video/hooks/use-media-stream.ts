@@ -31,10 +31,53 @@ function mediaConstraints(): MediaStreamConstraints {
   };
 }
 
+let rawStream: MediaStream | null = null;
 let sharedStream: MediaStream | null = null;
+const rawStreamListeners = new Set<(stream: MediaStream | null) => void>();
+const publishedStreamListeners = new Set<(stream: MediaStream | null) => void>();
 
 export function getSharedMediaStream(): MediaStream | null {
   return sharedStream;
+}
+
+export function getRawMediaStream(): MediaStream | null {
+  return rawStream;
+}
+
+export function subscribeRawMediaStream(
+  listener: (stream: MediaStream | null) => void,
+) {
+  rawStreamListeners.add(listener);
+  return () => {
+    rawStreamListeners.delete(listener);
+  };
+}
+
+export function subscribePublishedMediaStream(
+  listener: (stream: MediaStream | null) => void,
+) {
+  publishedStreamListeners.add(listener);
+  return () => {
+    publishedStreamListeners.delete(listener);
+  };
+}
+
+function notifyRawStream(stream: MediaStream | null) {
+  rawStreamListeners.forEach((listener) => listener(stream));
+}
+
+function notifyPublishedStream(stream: MediaStream | null) {
+  publishedStreamListeners.forEach((listener) => listener(stream));
+}
+
+/** Updates the stream bound to the local <video> preview and WebRTC publish path. */
+export function setPublishedMediaStream(stream: MediaStream | null) {
+  sharedStream = stream;
+  notifyPublishedStream(stream);
+}
+
+function bindPublishedStream(video: HTMLVideoElement | null) {
+  bindStream(video, sharedStream);
 }
 
 function hasLiveTracks(stream: MediaStream | null) {
@@ -73,8 +116,11 @@ function bindStream(
 }
 
 function clearSharedStream() {
-  sharedStream?.getTracks().forEach((track) => track.stop());
+  rawStream?.getTracks().forEach((track) => track.stop());
+  rawStream = null;
+  notifyRawStream(null);
   sharedStream = null;
+  notifyPublishedStream(null);
 }
 
 async function queryPermissionStates(): Promise<{
@@ -127,7 +173,7 @@ export function useMediaStream() {
   const acquiringRef = useRef(false);
 
   const syncVideo = useCallback(() => {
-    bindStream(localRef.current, streamRef.current);
+    bindPublishedStream(localRef.current);
   }, []);
 
   /** Callback ref — re-binds stream whenever the <video> node mounts or moves panels. */
@@ -137,12 +183,15 @@ export function useMediaStream() {
       node.setAttribute("playsinline", "true");
       node.setAttribute("webkit-playsinline", "true");
     }
-    bindStream(node, streamRef.current);
+    bindPublishedStream(node);
   }, []);
 
   const applyStream = useCallback(
     (stream: MediaStream) => {
+      rawStream = stream;
+      notifyRawStream(stream);
       sharedStream = stream;
+      notifyPublishedStream(stream);
       streamRef.current = stream;
       syncVideo();
       setCameraEnabledState(true);
@@ -215,13 +264,19 @@ export function useMediaStream() {
   }, [applyStream, attachSharedStream]);
 
   const setMuted = useCallback((muted: boolean) => {
-    streamRef.current?.getAudioTracks().forEach((track) => {
+    sharedStream?.getAudioTracks().forEach((track) => {
+      track.enabled = !muted;
+    });
+    rawStream?.getAudioTracks().forEach((track) => {
       track.enabled = !muted;
     });
   }, []);
 
   const setCameraEnabled = useCallback((enabled: boolean) => {
-    streamRef.current?.getVideoTracks().forEach((track) => {
+    rawStream?.getVideoTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
+    sharedStream?.getVideoTracks().forEach((track) => {
       track.enabled = enabled;
     });
     setCameraEnabledState(enabled);
@@ -232,9 +287,11 @@ export function useMediaStream() {
     syncVideo();
     const raf = requestAnimationFrame(() => syncVideo());
     const retry = window.setTimeout(() => syncVideo(), 150);
+    const unsubPublished = subscribePublishedMediaStream(() => syncVideo());
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(retry);
+      unsubPublished();
     };
   }, [status, syncVideo, cameraEnabled]);
 

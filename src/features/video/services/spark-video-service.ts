@@ -11,6 +11,13 @@ import { ensureLocalStream } from "../lib/ensure-local-stream";
 import { resolveDiscoverLocation } from "../lib/discover-location";
 import { buildDiscoverFilter } from "../lib/filter-payload";
 import { parseTempMessagePayload } from "../lib/parse-temp-message";
+import {
+  buildSparkJoinPayload,
+  buildSparkLeavePayload,
+  parseSparkCountPayload,
+  SPARK_DATING_EVENT_NAME,
+  sparkJoinedCountRequest,
+} from "../lib/spark-lobby-payload";
 import { peerService } from "./peer-service";
 import { useVideoCallStore } from "../stores/video-call-store";
 import type {
@@ -22,7 +29,6 @@ import type {
   VideoPartner,
 } from "../types";
 
-const SPARK_EVENT = "spark_dating";
 const EMOJI_PREFIX = "__emoji__:";
 
 type SparkHandlers = {
@@ -52,6 +58,8 @@ class SparkVideoService {
   private feedbackRoomId: string | null = null;
   private matchListenUntil = 0;
   private matchCelebrationTimer: ReturnType<typeof setTimeout> | null = null;
+  private lobbyListenerBound = false;
+  private lobbyJoinPromise: Promise<void> | null = null;
 
   private readonly onSocketPeerFound = (raw: unknown) => {
     const data = raw as PeerFoundPayload;
@@ -91,14 +99,11 @@ class SparkVideoService {
   };
 
   private readonly onSocketSparkCount = (raw: unknown) => {
-    const data = raw as { count?: number } | number | string;
-    const count =
-      typeof data === "object" && data !== null && "count" in data
-        ? Number(data.count)
-        : Number(data);
-    if (!Number.isNaN(count)) {
-      useVideoCallStore.getState().setOnlineCount(count);
+    const parsed = parseSparkCountPayload(raw);
+    if (process.env.NODE_ENV === "development") {
+      console.info("[Spark] spark_count", parsed);
     }
+    useVideoCallStore.getState().setOnlineCount(parsed.count);
   };
 
   async prepare(user?: GliceUser | null): Promise<boolean> {
@@ -147,10 +152,17 @@ class SparkVideoService {
     }
   }
 
+  private readonly onSocketSessionReady = () => {
+    void this.ensureLobbyJoined();
+  };
+
   bind(user: GliceUser, handlers: SparkHandlers) {
     this.user = user;
     this.handlers = handlers;
     this.registerSocketListeners();
+    this.registerLobbyListener();
+    // Flutter: join_event on screen load (camera/spark screen initState), not on Start.
+    void this.ensureLobbyJoined();
 
     peerService.setCallbacks({
       onRemoteStream: (stream) => this.onRemoteConnected(stream),
@@ -167,6 +179,8 @@ class SparkVideoService {
   }
 
   unbind() {
+    this.leaveLobby();
+    this.unregisterLobbyListener();
     this.unregisterSocketListeners();
     this.stopTimers();
     this.teardownPeer();
@@ -186,21 +200,59 @@ class SparkVideoService {
     this.iceServers = [];
   }
 
+  /** @deprecated Use ensureLobbyJoined via bind — kept for explicit refresh. */
   joinLobby() {
+    void this.ensureLobbyJoined();
+  }
+
+  private async ensureLobbyJoined() {
     if (!this.user) return;
-    chatSocket.emitEvent("join_event", {
-      name: SPARK_EVENT,
-      email: this.user.email,
-    });
-    chatSocket.emitEvent("get_joined_count", SPARK_EVENT);
+    if (this.lobbyJoinPromise) return this.lobbyJoinPromise;
+
+    this.lobbyJoinPromise = (async () => {
+      const connected = await chatSocket.waitUntilConnected(12_000);
+      if (!connected || !this.user) return;
+
+      const sessionReady = await chatSocket.ensureSessionReady();
+      if (!sessionReady || !this.user) return;
+
+      const joinPayload = buildSparkJoinPayload(this.user.email);
+      const countRequest = sparkJoinedCountRequest();
+
+      if (process.env.NODE_ENV === "development") {
+        console.info("[Spark] join_event", joinPayload);
+        console.info("[Spark] get_joined_count", countRequest);
+      }
+
+      chatSocket.emitEvent("join_event", joinPayload);
+      chatSocket.emitEvent("get_joined_count", countRequest);
+    })();
+
+    try {
+      await this.lobbyJoinPromise;
+    } finally {
+      this.lobbyJoinPromise = null;
+    }
   }
 
   leaveLobby() {
     if (!this.user) return;
-    chatSocket.emitEvent("leave_event", {
-      name: SPARK_EVENT,
-      email: this.user.email,
-    });
+    if (!chatSocket.isConnected()) return;
+    chatSocket.emitEvent("leave_event", buildSparkLeavePayload(this.user.email));
+  }
+
+  private registerLobbyListener() {
+    if (this.lobbyListenerBound) return;
+    chatSocket.onEvent("connect", this.onSocketSessionReady);
+    chatSocket.onEvent("user_connected", this.onSocketSessionReady);
+    this.lobbyListenerBound = true;
+  }
+
+  private unregisterLobbyListener() {
+    if (!this.lobbyListenerBound) return;
+    chatSocket.offEvent("connect", this.onSocketSessionReady);
+    chatSocket.offEvent("user_connected", this.onSocketSessionReady);
+    this.lobbyListenerBound = false;
   }
 
   async startSearch(filter: VideoFilterInput) {
@@ -250,7 +302,9 @@ class SparkVideoService {
     );
     if (generation !== this.searchGeneration) return;
     if (!stream) {
-      latest.setError("Camera not available. Allow camera access and try again.");
+      latest.setError(
+        "Camera not available. Allow camera access and try again.",
+      );
       latest.setStage("idle");
       return;
     }
@@ -271,7 +325,6 @@ class SparkVideoService {
     this.beginSearchTimer();
     this.emitDiscover();
     this.startDiscoverRetry();
-    this.joinLobby();
   }
 
   cancelSearch() {
@@ -327,14 +380,12 @@ class SparkVideoService {
     this.feedbackPartner = partner;
     this.feedbackContinueAfter = continueAfterFeedback;
     this.feedbackRoomId = roomId;
-    this.matchListenUntil = liked
-      ? Date.now() + 30_000
-      : 0;
+    this.matchListenUntil = liked ? Date.now() + 30_000 : 0;
 
     const delayMs = 1000 + Math.floor(Math.random() * 2000);
     window.setTimeout(() => {
       chatSocket.emitEvent("user_feedback", {
-        name: SPARK_EVENT,
+        name: SPARK_DATING_EVENT_NAME,
         feedback: liked,
         email: this.user?.email,
         userId: this.user?._id,
@@ -403,10 +454,7 @@ class SparkVideoService {
     store.setStage("idle");
   }
 
-  private handleSessionEnd(
-    endedByMe: boolean,
-    continueAfterFeedback = false,
-  ) {
+  private handleSessionEnd(endedByMe: boolean, continueAfterFeedback = false) {
     const store = useVideoCallStore.getState();
     const shouldFeedback = store.everConnected;
 
@@ -452,7 +500,9 @@ class SparkVideoService {
       () => this.handlers?.getLocalStream() ?? null,
     );
     if (!stream) {
-      store.setError("Camera not available. Allow camera access and try again.");
+      store.setError(
+        "Camera not available. Allow camera access and try again.",
+      );
       store.setStage("idle");
       return;
     }
@@ -532,8 +582,7 @@ class SparkVideoService {
     if (!senderId || senderId === myId) return;
 
     const partnerId = store.partner?.id;
-    const addressedToMe =
-      !data.receiverId || data.receiverId === myId;
+    const addressedToMe = !data.receiverId || data.receiverId === myId;
     const fromPartner = !partnerId || senderId === partnerId;
     if (!fromPartner && !addressedToMe) return;
 
@@ -584,7 +633,7 @@ class SparkVideoService {
 
     chatSocket.emitEvent("discover", {
       filter,
-      name: SPARK_EVENT,
+      name: SPARK_DATING_EVENT_NAME,
       email: this.user.email,
     });
   }
@@ -621,7 +670,7 @@ class SparkVideoService {
 
     chatSocket.emitEvent("hang_up", {
       "filter ": filter,
-      name: SPARK_EVENT,
+      name: SPARK_DATING_EVENT_NAME,
       roomId: store.roomId ?? this.user._id,
       userId: this.user._id,
     });

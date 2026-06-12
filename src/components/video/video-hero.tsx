@@ -16,6 +16,8 @@ import {
   normalizeAgeRange,
 } from "@/features/video/lib/pref-bounds";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useArFilters } from "@/features/ar-filters/hooks/use-ar-filters";
+import { ArFilterRail } from "./ar-filter-rail";
 import { AuthModal } from "./auth-modal";
 import { PreferenceModal } from "./preference-modal";
 
@@ -130,6 +132,15 @@ export function VideoHero() {
   const [isMuted, setIsMuted] = useState(false);
   const genderMenuRef = useRef<HTMLDivElement>(null);
   const mounted = useMounted();
+  const mediaReady = mounted && mediaStatus === "ready";
+  const { activeFilter, switchFilter } = useArFilters({
+    enabled: isLoggedIn && mediaReady,
+  });
+  const showArFilterRail =
+    isLoggedIn &&
+    mediaReady &&
+    callStage !== "feedback" &&
+    cameraEnabled;
 
   const attachRemoteVideo = useCallback(
     (node: HTMLVideoElement | null) => {
@@ -139,7 +150,6 @@ export function VideoHero() {
     [remoteStream],
   );
 
-  const mediaReady = mounted && mediaStatus === "ready";
   const mediaBinding =
     mediaStatus === "requesting" || mediaStatus === "ready";
   const needsPermissionOverlay =
@@ -547,6 +557,13 @@ export function VideoHero() {
                       muted
                       autoPlay
                       aria-label="Your camera"
+                    />
+                    <ArFilterRail
+                      activeFilter={activeFilter}
+                      visible={showArFilterRail}
+                      onSelect={(id) => {
+                        void switchFilter(id);
+                      }}
                     />
                   </div>
                 </div>
